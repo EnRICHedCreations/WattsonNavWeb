@@ -376,6 +376,7 @@ export function useNavigation() {
   /** Leader flow — requires an already-planned route, since the whole point
    * of a group session is that every rider navigates the exact same plan. */
   async function startGroupRide() {
+    console.log('startGroupRide called')
     const current = stateRef.current
     const plan = current.pitstopPlan
     const origin = current.selectedOrigin?.location ?? current.origin
@@ -408,6 +409,7 @@ export function useNavigation() {
   /** Follower flow — pulls down the leader's exact plan (Android or web) and
    * adopts it as this device's own pitstopPlan. */
   async function joinGroupRide(joinCode: string) {
+    console.log('joinGroupRide called with code:', JSON.stringify(joinCode), 'current isJoiningGroup:', stateRef.current.isJoiningGroup)
     setState({ isJoiningGroup: true, groupError: null })
     try {
       const result = await groupRideRepository.joinSession(joinCode)

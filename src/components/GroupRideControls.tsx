@@ -50,7 +50,14 @@ export default function GroupRideControls({
           value={joinCodeInput}
           onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
         />
-        <button className="secondary-button" onClick={() => onJoin(joinCodeInput)} disabled={isBusy}>
+        <button
+          className="secondary-button"
+          onClick={() => {
+            console.log('Join button clicked, joinCodeInput:', JSON.stringify(joinCodeInput), 'isBusy:', isBusy)
+            onJoin(joinCodeInput)
+          }}
+          disabled={isBusy}
+        >
           {isBusy ? 'Joining…' : 'Join'}
         </button>
       </div>
