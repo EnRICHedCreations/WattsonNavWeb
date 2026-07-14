@@ -17,9 +17,9 @@ export default defineConfig({
         display: 'standalone',
         start_url: '/',
         icons: [
-          // Placeholder — swap in real 192/512px PNGs (including a maskable
-          // variant) before actually deploying/installing this for real use.
-          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' },
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

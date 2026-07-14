@@ -116,5 +116,7 @@ claims until you've run it.
   something `fetch`'s error handling alone can work around — it would need
   a small serverless proxy in front of whichever API blocks direct browser access.
 - No offline map tiles beyond what Workbox has already cached from browsing
-- Placeholder icon only (`public/favicon.svg`) — real 192/512px PNGs (plus a
-  maskable variant) needed before genuine install/deployment testing
+- **iOS has no automatic install prompt, on any PWA, ever** — Apple has never
+  implemented `beforeinstallprompt` on Safari; "Add to Home Screen" is always
+  a manual Share-sheet action there regardless of manifest quality. This
+  isn't fixable from our side.
