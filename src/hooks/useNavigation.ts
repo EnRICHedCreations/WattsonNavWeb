@@ -320,31 +320,43 @@ export function useNavigation() {
    * join/leave diffs — sidesteps the flicker issue the Android app hit,
    * rather than needing an append-only workaround after seeing it happen. */
   function connectChannel(session: GroupSession) {
-    const channel = supabase.channel(`ride:${session.sessionId}`, {
+    const topic = `ride:${session.sessionId}`
+    console.log('connectChannel: connecting to', topic)
+    const channel = supabase.channel(topic, {
       config: { private: true },
     })
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<RiderPresencePayload>()
       const selfRiderId = stateRef.current.riderId
-      const positions: TeammatePosition[] = Object.values(state)
-        .flat()
-        .filter((p) => p.rider_id !== selfRiderId)
-        // Defensive: a marker constructed with non-finite coordinates is what
-        // produces MapLibre's "reading 'lng'" crash (Marker._update() reading
-        // an undefined/NaN-derived _lngLat). Whatever the upstream cause,
-        // never let a malformed entry reach the map layer.
-        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
-        .map((p) => ({
-          riderId: p.rider_id,
-          displayName: p.display_name,
-          location: { lat: p.lat, lon: p.lon },
-          bearingDegrees: p.bearing,
-        }))
+      // Log the RAW state before any filtering — this is the single most
+      // useful piece of evidence for cross-platform issues: it shows exactly
+      // what field names and values arrived on the wire, from either platform.
+      console.log('presence sync — raw state:', JSON.stringify(state), 'selfRiderId:', selfRiderId)
+
+      const allEntries = Object.values(state).flat()
+      const afterSelfFilter = allEntries.filter((p) => p.rider_id !== selfRiderId)
+      const afterCoordFilter = afterSelfFilter.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+
+      if (afterSelfFilter.length !== afterCoordFilter.length) {
+        console.warn(
+          'presence sync — dropped entries with non-finite coordinates:',
+          afterSelfFilter.filter((p) => !(Number.isFinite(p.lat) && Number.isFinite(p.lon))),
+        )
+      }
+
+      const positions: TeammatePosition[] = afterCoordFilter.map((p) => ({
+        riderId: p.rider_id,
+        displayName: p.display_name,
+        location: { lat: p.lat, lon: p.lon },
+        bearingDegrees: p.bearing,
+      }))
+      console.log('presence sync — resolved teammates:', positions.length, positions)
       setState({ teammatePositions: positions })
     })
 
     channel.on('broadcast', { event: 'wait_for_me' }, ({ payload }) => {
+      console.log('wait_for_me broadcast received — raw payload:', JSON.stringify(payload))
       const event = payload as WaitForMeEvent
       if (event.rider_id !== stateRef.current.riderId) {
         setState({ waitForMeMessage: `${event.display_name} says: wait up!` })
@@ -352,6 +364,7 @@ export function useNavigation() {
     })
 
     channel.subscribe((status, err) => {
+      console.log('channel subscribe status:', status, err ?? '')
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         console.error('Group ride channel error:', status, err)
       }
@@ -469,9 +482,10 @@ export function useNavigation() {
         lon: fix.location.lon,
         bearing: fix.bearingDegrees,
       }
-      channelRef.current.track(payload).catch((error) => {
-        console.error('trackPosition failed:', error)
-      })
+      channelRef.current
+        .track(payload)
+        .then(() => console.log('trackPosition sent:', JSON.stringify(payload)))
+        .catch((error) => console.error('trackPosition failed:', error))
     }
 
     if (!current.isNavigating) return

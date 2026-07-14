@@ -140,9 +140,11 @@ export async function createSession(
     .single<RideSessionRow>()
 
   if (error || !data) {
+    console.error('createSession failed:', error)
     throw new Error(error?.message ?? "Supabase didn't return a session id")
   }
 
+  console.log('createSession succeeded — sessionId:', data.id, 'joinCode:', joinCode)
   return { sessionId: data.id, joinCode, isLeader: true }
 }
 
@@ -158,10 +160,16 @@ export async function joinSession(
     .limit(1)
     .maybeSingle<RideSessionRow>()
 
-  if (error || !data) return null
+  if (error || !data) {
+    console.error('joinSession failed to find a matching row:', joinCode, error)
+    return null
+  }
+
+  console.log('joinSession found row — sessionId:', data.id, 'leader_id:', data.leader_id)
 
   const routeJson: RideRouteJson = JSON.parse(data.route_json)
   const plan = rideRouteJsonToPlan(routeJson)
+  console.log('joinSession parsed plan — points:', plan.route.points.length, 'pitstops:', plan.pitstops.length)
 
   return {
     session: { sessionId: data.id, joinCode: data.join_code, isLeader: false },
