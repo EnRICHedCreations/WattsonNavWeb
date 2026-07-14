@@ -25,17 +25,24 @@ import * as riderIdentity from '../lib/db/riderIdentity'
 import * as groupRideRepository from '../lib/repository/groupRideRepository'
 import { supabase } from '../lib/supabase/client'
 
+/** Wire format must match RiderPresence.kt's @SerialName annotations exactly:
+ * rider_id/display_name are explicitly renamed to snake_case in Kotlin's
+ * kotlinx.serialization, while lat/lon/bearing are single words and stay
+ * as-is on both sides. Using camelCase here (the original bug) meant an
+ * Android-sourced presence payload's rider_id/display_name never matched
+ * this shape at all — every field access came back undefined, breaking
+ * cross-platform identification even though lat/lon happened to still work. */
 interface RiderPresencePayload {
-  riderId: string
-  displayName: string
+  rider_id: string
+  display_name: string
   lat: number
   lon: number
   bearing: number | null
 }
 
 interface WaitForMeEvent {
-  riderId: string
-  displayName: string
+  rider_id: string
+  display_name: string
 }
 
 const SEARCH_DEBOUNCE_MS = 400
@@ -322,10 +329,15 @@ export function useNavigation() {
       const selfRiderId = stateRef.current.riderId
       const positions: TeammatePosition[] = Object.values(state)
         .flat()
-        .filter((p) => p.riderId !== selfRiderId)
+        .filter((p) => p.rider_id !== selfRiderId)
+        // Defensive: a marker constructed with non-finite coordinates is what
+        // produces MapLibre's "reading 'lng'" crash (Marker._update() reading
+        // an undefined/NaN-derived _lngLat). Whatever the upstream cause,
+        // never let a malformed entry reach the map layer.
+        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
         .map((p) => ({
-          riderId: p.riderId,
-          displayName: p.displayName,
+          riderId: p.rider_id,
+          displayName: p.display_name,
           location: { lat: p.lat, lon: p.lon },
           bearingDegrees: p.bearing,
         }))
@@ -334,8 +346,8 @@ export function useNavigation() {
 
     channel.on('broadcast', { event: 'wait_for_me' }, ({ payload }) => {
       const event = payload as WaitForMeEvent
-      if (event.riderId !== stateRef.current.riderId) {
-        setState({ waitForMeMessage: `${event.displayName} says: wait up!` })
+      if (event.rider_id !== stateRef.current.riderId) {
+        setState({ waitForMeMessage: `${event.display_name} says: wait up!` })
       }
     })
 
@@ -424,7 +436,7 @@ export function useNavigation() {
       await channelRef.current.send({
         type: 'broadcast',
         event: 'wait_for_me',
-        payload: { riderId: current.riderId, displayName: current.displayName } satisfies WaitForMeEvent,
+        payload: { rider_id: current.riderId, display_name: current.displayName } satisfies WaitForMeEvent,
       })
     } catch (error) {
       console.error('sendWaitForMe failed:', error)
@@ -451,8 +463,8 @@ export function useNavigation() {
 
     if (current.groupSession && channelRef.current) {
       const payload: RiderPresencePayload = {
-        riderId: current.riderId,
-        displayName: current.displayName,
+        rider_id: current.riderId,
+        display_name: current.displayName,
         lat: fix.location.lat,
         lon: fix.location.lon,
         bearing: fix.bearingDegrees,

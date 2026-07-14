@@ -194,15 +194,28 @@ export default function MapView({
     }
 
     for (const teammate of teammatePositions) {
-      let marker = teammateMarkersRef.current.get(teammate.riderId)
-      if (!marker) {
-        marker = new maplibregl.Marker({ element: createTeammateElement(teammate.displayName) })
-        marker.setLngLat([teammate.location.lon, teammate.location.lat])
-        marker.addTo(map)
-        teammateMarkersRef.current.set(teammate.riderId, marker)
+      // Defense-in-depth: even though the source of these positions already
+      // filters non-finite coordinates, never let a bad value reach the
+      // Marker API here either — this is exactly what produced MapLibre's
+      // "reading 'lng'" crash (a marker whose position was never validly set).
+      if (!Number.isFinite(teammate.location.lat) || !Number.isFinite(teammate.location.lon)) {
+        console.error('Skipping teammate marker with non-finite coordinates:', teammate)
         continue
       }
-      marker.setLngLat([teammate.location.lon, teammate.location.lat])
+
+      try {
+        let marker = teammateMarkersRef.current.get(teammate.riderId)
+        if (!marker) {
+          marker = new maplibregl.Marker({ element: createTeammateElement(teammate.displayName) })
+          marker.setLngLat([teammate.location.lon, teammate.location.lat])
+          marker.addTo(map)
+          teammateMarkersRef.current.set(teammate.riderId, marker)
+          continue
+        }
+        marker.setLngLat([teammate.location.lon, teammate.location.lat])
+      } catch (error) {
+        console.error('Failed to render teammate marker:', teammate, error)
+      }
     }
   }, [teammatePositions])
 
