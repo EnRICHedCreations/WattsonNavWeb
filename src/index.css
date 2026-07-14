@@ -312,3 +312,135 @@ body {
   margin-bottom: 4px;
 }
 
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row .primary-button {
+  flex: 1;
+}
+
+.secondary-button {
+  padding: 14px 20px;
+  border-radius: 12px;
+  border: 1px solid #3a3d45;
+  background: var(--graphite-background);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trip-history-list {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--graphite-background);
+}
+
+.trip-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #262932;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.trip-history-item:last-child {
+  border-bottom: none;
+}
+
+.trip-history-destination {
+  font-size: 14px;
+}
+
+.trip-history-meta {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.teammate-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.teammate-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #b388ff;
+  border: 3px solid #121316;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.teammate-label {
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(18, 19, 22, 0.85);
+  color: var(--text-primary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.show-team-button {
+  position: absolute;
+  right: 16px;
+  bottom: 80px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 24px;
+  background: var(--graphite-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.group-ride-controls {
+  margin-top: 12px;
+}
+
+.hint-text {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-top: 8px;
+}
+
+.group-status-chip {
+  background: #263238;
+  font-size: 13px;
+}
+
+.wait-for-me-banner {
+  background: var(--pitstop-amber);
+  color: #121316;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.wait-for-me-banner .text-button {
+  color: #121316;
+  font-weight: 700;
+}
+
+.nav-button-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+

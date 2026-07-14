@@ -41,41 +41,67 @@ npm test
 
 ## Project status
 
-**Batch 4** — full navigation UI, wired end-to-end. `useNavigation` is the
-central hook (direct port of `NavViewModel`): search, planning, starting/
-stopping navigation, step tracking, off-route rerouting, and arrival
-detection, all against the Batch 3 data layer. `MapView` became presentational
-(driven entirely by props) and now renders the route line and pitstop
-markers using plain `line`/`circle` GL layers — the same static-property
-layer types that worked reliably on the Android side, deliberately avoiding
-the data-driven `icon-image` pattern that caused the rendering bug there.
-Pitstops are clickable via MapLibre's standard `map.on('click', layerId, ...)`
-pattern.
+**Batch 6 — group rides, feature-complete.** This is the batch I was most
+careful about, having watched the equivalent Android batch cost many rounds
+of real debugging. Every lesson from that got applied up front instead of
+rediscovered:
 
-New UI: `SearchBar` (reused for both starting point and destination),
-`ChargeIntervalControl`, `ChargeStationFilterControl`, `RouteOverviewSheet`,
-`TurnInstructionBanner`, `NextPitstopChip`, `PitstopInfoCard`, `ControlsPanel`.
+- **RLS policies are already solved.** If this shares the Android app's
+  Supabase project, `supabase/group_rides.sql`'s `realtime.messages` policies
+  already cover this — no new migration needed.
+- **Listener-before-subscribe ordering** isn't a footgun here the way it was
+  on the Kotlin side — `supabase-js`'s idiomatic `.on().on().subscribe()`
+  chaining pattern makes the correct order the *only* way to use the library
+  normally.
+- **Presence flicker is avoided architecturally, not patched after the
+  fact.** `supabase-js` exposes a `sync` event backed by `presenceState()`
+  returning full reconciled state, rather than raw join/leave diffs to
+  accumulate manually — this was the actual root cause of the flicker bug
+  on Android, and it's just not reachable here by construction.
+- **Teammates render as `maplibregl.Marker` DOM elements**, identical
+  technique to the puck — never touches the native-layer icon-image path
+  that caused the confirmed, unexplained rendering bug on the Android side.
+- **Camera UX matches the Android app's final design**: Recenter is always
+  self-only; a separate one-shot **Show Team** button fits bounds around
+  everyone. Starting or joining a group ride auto-starts navigation, since
+  presence only broadcasts while actively navigating.
 
-State management uses a small custom store hook (`useStore`) rather than
-plain `useState` — `NavViewModel`'s logic reads/writes state from async
-callbacks (geolocation updates, network responses) where React's normal
-closure-captured state would go stale; `useStore` exposes a `stateRef.current`
-that's always current, mirroring `MutableStateFlow.value`/`.update{}`.
+**Cross-platform by construction, not by luck:** `groupRideRepository.ts`'s
+JSON shape for the stored route matches `RideRouteJson.kt` field-for-field —
+same key names, same nesting, same `[lat, lon]` point ordering. A trip
+planned on the Android app and one planned here produce byte-for-byte
+compatible `route_json` payloads, so a leader on either platform can be
+joined by a follower on the other.
 
-**Not built yet**: settings/trip-history persistence (state resets on reload
-right now — no IndexedDB-backed settings yet, despite the cache module from
-Batch 3 already existing for charge points specifically), voice guidance,
-rider profile, group rides.
+New files: `lib/supabase/client.ts`, `lib/db/riderIdentity.ts`,
+`lib/repository/groupRideRepository.ts`, `GroupRideControls.tsx`, plus
+teammate-marker and group-ride-UI additions to `MapView.tsx`/`App.tsx`.
 
-## Batch plan
+**What's genuinely still unverified**, stated plainly rather than assumed
+away: none of this has been run against a live Supabase project from this
+environment. The API usage is sourced directly from `@supabase/realtime-js`'s
+own README rather than guessed, which is a meaningfully higher confidence
+level than most of the Android group-ride code started with — but "matches
+the docs" and "works against your actual project" are still two different
+claims until you've run it.
 
-1. ~~Scaffold: Vite/PWA config, GeoMath port~~ (Batch 1)
-2. ~~Map screen — MapLibre GL JS, OpenFreeMap tiles, geolocation puck~~ (Batch 2)
-3. ~~Routing/pitstop logic — API clients, PitstopPlanner port, IndexedDB caching~~ (Batch 3)
-4. ~~Navigation UI — turn-by-turn banner, route overview, search~~ (this batch)
-5. Settings & trip history — IndexedDB-backed, mirrors DataStore/Room behavior
-6. Group rides — Supabase Realtime Presence/Broadcast, shared schema with
-   the Android app (highest-risk batch, same as it was on the Kotlin side)
+## Batch plan — complete
+
+1. ~~Scaffold: Vite/PWA config, GeoMath port~~
+2. ~~Map screen — MapLibre GL JS, OpenFreeMap tiles, geolocation puck~~
+3. ~~Routing/pitstop logic — API clients, PitstopPlanner port, IndexedDB caching~~
+4. ~~Navigation UI — turn-by-turn banner, route overview, search~~
+5. ~~Settings & trip history — IndexedDB-backed~~
+6. ~~Group rides — Supabase Realtime, shared schema with the Android app~~
+
+## Known gaps versus the Android app
+
+- **No background tracking** (stated since Batch 1 — fundamental platform
+  limit, not something later batches change)
+- **CORS**: confirmed working for ORS in practice; NLR/OpenChargeMap/Overpass
+  still unverified against a real deployment
+- **No voice guidance, no rider photo** — text-only display name for now
+- **No real device/production testing of the group ride flow yet**
 
 ## Known limitations (see also the Android app's own list)
 

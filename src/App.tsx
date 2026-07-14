@@ -17,12 +17,19 @@ function App() {
     selectDestination,
     onChargeIntervalChanged,
     onChargeStationFilterChanged,
+    selectHistoryEntry,
     onPitstopTapped,
     clearSelectedPitstop,
     clearArrivalMessage,
     planRoute,
     startNavigation,
     stopNavigation,
+    setDisplayName,
+    startGroupRide,
+    joinGroupRide,
+    leaveGroupRide,
+    sendWaitForMe,
+    clearWaitForMeMessage,
   } = useNavigation()
 
   // Arrival banner auto-clears after a few seconds, same as the Android app.
@@ -42,6 +49,7 @@ function App() {
         puckBearingDegrees={state.puckBearingDegrees}
         pitstopPlan={state.pitstopPlan}
         isNavigating={state.isNavigating}
+        teammatePositions={state.teammatePositions}
         onPitstopTap={onPitstopTapped}
       />
 
@@ -50,13 +58,43 @@ function App() {
       {state.isNavigating ? (
         <div className="nav-overlay">
           <TurnInstructionBanner step={currentStep} isRerouting={state.isRerouting} />
+
           {state.nextPitstopName && state.distanceToNextPitstopMeters != null && (
             <NextPitstopChip name={state.nextPitstopName} distanceMeters={state.distanceToNextPitstopMeters} />
           )}
+
+          {state.groupSession && (
+            <div className="card group-status-chip">
+              Group code: {state.groupSession.joinCode} · {state.teammatePositions.length} teammate(s)
+            </div>
+          )}
+
           {state.arrivalMessage && <div className="card arrival-banner">{state.arrivalMessage}</div>}
-          <button className="stop-button" onClick={stopNavigation}>
-            Stop
-          </button>
+
+          {state.waitForMeMessage && (
+            <div className="card wait-for-me-banner">
+              <div>{state.waitForMeMessage}</div>
+              <button className="text-button" onClick={clearWaitForMeMessage}>
+                Ok
+              </button>
+            </div>
+          )}
+
+          <div className="nav-button-row">
+            {state.groupSession && (
+              <button className="secondary-button" onClick={sendWaitForMe}>
+                Wait for me
+              </button>
+            )}
+            {state.groupSession && (
+              <button className="secondary-button" onClick={leaveGroupRide}>
+                Leave group
+              </button>
+            )}
+            <button className="stop-button" onClick={stopNavigation}>
+              Stop
+            </button>
+          </div>
         </div>
       ) : (
         <ControlsPanel
@@ -68,8 +106,13 @@ function App() {
           selectDestination={selectDestination}
           onChargeIntervalChanged={onChargeIntervalChanged}
           onChargeStationFilterChanged={onChargeStationFilterChanged}
+          selectHistoryEntry={selectHistoryEntry}
           planRoute={planRoute}
           startNavigation={startNavigation}
+          displayName={state.displayName}
+          onDisplayNameChange={setDisplayName}
+          startGroupRide={startGroupRide}
+          joinGroupRide={joinGroupRide}
         />
       )}
 

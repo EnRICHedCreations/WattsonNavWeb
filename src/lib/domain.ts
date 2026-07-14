@@ -53,3 +53,16 @@ export interface GeocodeResult {
   label: string
   location: LatLng
 }
+
+export interface GroupSession {
+  sessionId: string
+  joinCode: string
+  isLeader: boolean
+}
+
+export interface TeammatePosition {
+  riderId: string
+  displayName: string
+  location: LatLng
+  bearingDegrees: number | null
+}

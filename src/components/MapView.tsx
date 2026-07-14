@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { LatLng } from '../lib/geo/geoMath'
-import type { ChargePoint, PitstopPlan } from '../lib/domain'
+import type { ChargePoint, PitstopPlan, TeammatePosition } from '../lib/domain'
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const INITIAL_ZOOM = 14
 const NAV_ZOOM = 17
 const CAMERA_EASE_MS = 800
+const SHOW_TEAM_PADDING_PX = 80
 
 const ROUTE_SOURCE_ID = 'route-source'
 const ROUTE_LAYER_ID = 'route-layer'
@@ -26,11 +27,29 @@ function createPuckElement(): HTMLDivElement {
   return el
 }
 
+/** Teammates are DOM markers, same as the puck — deliberately never touching
+ * the native-layer icon-image path that caused the confirmed rendering bug
+ * on the Android side. Built via DOM methods (not innerHTML with interpolated
+ * text) since displayName is teammate-supplied and textContent auto-escapes it. */
+function createTeammateElement(displayName: string): HTMLDivElement {
+  const el = document.createElement('div')
+  el.className = 'teammate-marker'
+  const dot = document.createElement('div')
+  dot.className = 'teammate-dot'
+  const label = document.createElement('div')
+  label.className = 'teammate-label'
+  label.textContent = displayName
+  el.appendChild(dot)
+  el.appendChild(label)
+  return el
+}
+
 interface MapViewProps {
   liveLocation: LatLng | null
   puckBearingDegrees: number | null
   pitstopPlan: PitstopPlan | null
   isNavigating: boolean
+  teammatePositions: TeammatePosition[]
   onPitstopTap: (chargePoint: ChargePoint) => void
 }
 
@@ -39,12 +58,14 @@ export default function MapView({
   puckBearingDegrees,
   pitstopPlan,
   isNavigating,
+  teammatePositions,
   onPitstopTap,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const styleLoadedRef = useRef(false)
   const puckMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const teammateMarkersRef = useRef<Map<string, maplibregl.Marker>>(new Map())
   const hasCenteredInitiallyRef = useRef(false)
   const onPitstopTapRef = useRef(onPitstopTap)
   onPitstopTapRef.current = onPitstopTap
@@ -78,6 +99,10 @@ export default function MapView({
 
     return () => {
       marker.remove()
+      for (const teammateMarker of teammateMarkersRef.current.values()) {
+        teammateMarker.remove()
+      }
+      teammateMarkersRef.current.clear()
       map.remove()
       mapRef.current = null
       puckMarkerRef.current = null
@@ -154,7 +179,34 @@ export default function MapView({
     }
   }, [pitstopPlan])
 
-  // Puck position/rotation + camera follow.
+  // Teammate markers — added/updated/removed to match the current roster.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const currentIds = new Set(teammatePositions.map((t) => t.riderId))
+
+    for (const [riderId, marker] of teammateMarkersRef.current) {
+      if (!currentIds.has(riderId)) {
+        marker.remove()
+        teammateMarkersRef.current.delete(riderId)
+      }
+    }
+
+    for (const teammate of teammatePositions) {
+      let marker = teammateMarkersRef.current.get(teammate.riderId)
+      if (!marker) {
+        marker = new maplibregl.Marker({ element: createTeammateElement(teammate.displayName) })
+        marker.addTo(map)
+        teammateMarkersRef.current.set(teammate.riderId, marker)
+      }
+      marker.setLngLat([teammate.location.lon, teammate.location.lat])
+    }
+  }, [teammatePositions])
+
+  // Puck position/rotation + camera follow (self only — Show Team is a
+  // separate, explicit one-shot action below, not something auto-follow
+  // silently switches into).
   useEffect(() => {
     const map = mapRef.current
     const marker = puckMarkerRef.current
@@ -184,6 +236,18 @@ export default function MapView({
     }
   }
 
+  const handleShowTeam = () => {
+    const map = mapRef.current
+    if (!map || !liveLocation) return
+    setFollowMode(false)
+    const bounds = new maplibregl.LngLatBounds()
+    bounds.extend([liveLocation.lon, liveLocation.lat])
+    for (const teammate of teammatePositions) {
+      bounds.extend([teammate.location.lon, teammate.location.lat])
+    }
+    map.fitBounds(bounds, { padding: SHOW_TEAM_PADDING_PX, duration: CAMERA_EASE_MS })
+  }
+
   return (
     <div className="map-container">
       <div ref={containerRef} className="map-view" />
@@ -191,6 +255,12 @@ export default function MapView({
       {isNavigating && !followMode && liveLocation && (
         <button className="recenter-button" onClick={handleRecenter}>
           Recenter
+        </button>
+      )}
+
+      {isNavigating && teammatePositions.length > 0 && liveLocation && (
+        <button className="show-team-button" onClick={handleShowTeam}>
+          Show Team
         </button>
       )}
     </div>
