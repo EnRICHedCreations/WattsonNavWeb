@@ -197,8 +197,10 @@ export default function MapView({
       let marker = teammateMarkersRef.current.get(teammate.riderId)
       if (!marker) {
         marker = new maplibregl.Marker({ element: createTeammateElement(teammate.displayName) })
+        marker.setLngLat([teammate.location.lon, teammate.location.lat])
         marker.addTo(map)
         teammateMarkersRef.current.set(teammate.riderId, marker)
+        continue
       }
       marker.setLngLat([teammate.location.lon, teammate.location.lat])
     }
