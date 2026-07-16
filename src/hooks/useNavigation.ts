@@ -386,6 +386,11 @@ export function useNavigation() {
       return
     }
 
+    // Clear the custom starting point now that we've captured it above — a
+    // group ride is inherently live (this is about to be shared with other
+    // riders), so it shouldn't stay in preview mode for the leader either.
+    setState({ selectedOrigin: null, originQuery: '', originGeocodeResults: [] })
+
     setState({ isJoiningGroup: true, groupError: null })
     try {
       const session = await groupRideRepository.createSession(
@@ -410,7 +415,7 @@ export function useNavigation() {
    * adopts it as this device's own pitstopPlan. */
   async function joinGroupRide(joinCode: string) {
     console.log('joinGroupRide called with code:', JSON.stringify(joinCode), 'current isJoiningGroup:', stateRef.current.isJoiningGroup)
-    setState({ isJoiningGroup: true, groupError: null })
+    setState({ isJoiningGroup: true, groupError: null, selectedOrigin: null, originQuery: '', originGeocodeResults: [] })
     try {
       const result = await groupRideRepository.joinSession(joinCode)
       if (!result) {
@@ -491,6 +496,16 @@ export function useNavigation() {
     }
 
     if (!current.isNavigating) return
+
+    // A custom starting point means the rider isn't physically where the
+    // route begins — treat this as a preview, not live navigation. Without
+    // this, off-route detection fires almost immediately (the rider's real
+    // GPS position is far from the route's start) and silently discards
+    // the chosen starting point by rerouting from wherever they actually
+    // are, which is exactly the bug being fixed here. Same distinction
+    // Google Maps makes between previewing directions and actively
+    // navigating them.
+    if (current.selectedOrigin) return
 
     const destination = current.selectedDestination
     if (destination && !hasArrivedRef.current) {

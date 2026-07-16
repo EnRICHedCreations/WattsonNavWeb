@@ -417,6 +417,16 @@ body {
   margin-top: 8px;
 }
 
+.preview-banner {
+  background: #1e2a38;
+  border: 1px solid #2f4a63;
+}
+
+.preview-banner .hint-text {
+  margin-top: 6px;
+  opacity: 0.85;
+}
+
 .group-status-chip {
   background: #263238;
   font-size: 13px;

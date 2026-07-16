@@ -1,0 +1,26 @@
+New: Wattson Navigator on the web + Android updates
+
+Big one today — Wattson Navigator now has a web app to go alongside the Android app, plus a solid batch of upgrades to the Android side.
+
+No app store, no install required — just open it in your phone's browser. It's got the same core feature set: turn-by-turn nav, automatic charge pitstops, and group rides.
+
+The part I'm most excited about: it shares the same backend as the Android app, so an Android rider and a web rider can join the exact same group ride. Doesn't matter what you're running — same session, same route, same pitstops, everyone sees each other on the map.
+
+One honest limitation worth knowing: browsers pause location tracking when you background the tab or lock your screen, so the web version is best with your phone active and the tab open. The Android app doesn't have that limit — if you want tracking through a locked screen, that's still the one to use.
+
+Android upgrades
+Public charge outlets — pitstop planning now pulls in OpenStreetMap-tagged public outlets, not just EV charging stations. New toggle lets you choose EV only, public outlets only, or both. Note: OSM does not have many public outlets tagged, but it's there.
+Starting point — you can now plan a route from somewhere other than your current location, instead of it always assuming you're starting from right where you're standing.
+Group ride camera — Recenter now always just centers on you; a separate "Show Team" button frames everyone in the group at once. Two different things, two different buttons.
+Wait for me — the banner now stays on screen with an "Ok" button instead of disappearing after a few seconds, so you don't miss it.
+More reliable group rides — cleaned up a handful of edge cases around reconnecting and staying in sync mid-ride.
+
+Both apps are free, no ads, no accounts required for solo use. Group rides just need a join code to share with your crew.
+
+Web app:  https://wattson-nav-web-nu.vercel.app/ (Will buy a domain soon) - Add to Home screen to go fullscreen.
+
+Android app: https://www.mediafire.com/file/rzmy34h7j5xg33c/WattsonNav_1.4.apk/file
+
+Let me know what breaks — always looking for real-world testing from other riders.
+
+— Starkwheel

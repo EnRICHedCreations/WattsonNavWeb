@@ -41,6 +41,7 @@ function App() {
   }, [state.arrivalMessage])
 
   const currentStep = state.pitstopPlan?.route.steps[state.currentStepIndex] ?? null
+  const isPreview = state.selectedOrigin != null
 
   return (
     <div className="app-root">
@@ -49,6 +50,7 @@ function App() {
         puckBearingDegrees={state.puckBearingDegrees}
         pitstopPlan={state.pitstopPlan}
         isNavigating={state.isNavigating}
+        isPreview={isPreview}
         teammatePositions={state.teammatePositions}
         onPitstopTap={onPitstopTapped}
       />
@@ -57,10 +59,21 @@ function App() {
 
       {state.isNavigating ? (
         <div className="nav-overlay">
-          <TurnInstructionBanner step={currentStep} isRerouting={state.isRerouting} />
-
-          {state.nextPitstopName && state.distanceToNextPitstopMeters != null && (
-            <NextPitstopChip name={state.nextPitstopName} distanceMeters={state.distanceToNextPitstopMeters} />
+          {isPreview ? (
+            <div className="card preview-banner">
+              <div className="turn-instruction">Previewing route from {state.selectedOrigin?.label}</div>
+              <div className="hint-text">
+                This route starts somewhere other than your current location, so it's shown as a preview —
+                turn-by-turn tracking and rerouting are off. Clear the starting point to navigate live.
+              </div>
+            </div>
+          ) : (
+            <>
+              <TurnInstructionBanner step={currentStep} isRerouting={state.isRerouting} />
+              {state.nextPitstopName && state.distanceToNextPitstopMeters != null && (
+                <NextPitstopChip name={state.nextPitstopName} distanceMeters={state.distanceToNextPitstopMeters} />
+              )}
+            </>
           )}
 
           {state.groupSession && (

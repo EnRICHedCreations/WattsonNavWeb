@@ -100,7 +100,7 @@ export default function ControlsPanel({
         <>
           <RouteOverviewSheet plan={state.pitstopPlan} />
           <button className="primary-button" onClick={startNavigation}>
-            Start navigation
+            {state.selectedOrigin ? 'Preview route' : 'Start navigation'}
           </button>
         </>
       )}

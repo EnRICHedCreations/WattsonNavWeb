@@ -49,6 +49,7 @@ interface MapViewProps {
   puckBearingDegrees: number | null
   pitstopPlan: PitstopPlan | null
   isNavigating: boolean
+  isPreview: boolean
   teammatePositions: TeammatePosition[]
   onPitstopTap: (chargePoint: ChargePoint) => void
 }
@@ -58,6 +59,7 @@ export default function MapView({
   puckBearingDegrees,
   pitstopPlan,
   isNavigating,
+  isPreview,
   teammatePositions,
   onPitstopTap,
 }: MapViewProps) {
@@ -67,6 +69,7 @@ export default function MapView({
   const puckMarkerRef = useRef<maplibregl.Marker | null>(null)
   const teammateMarkersRef = useRef<Map<string, maplibregl.Marker>>(new Map())
   const hasCenteredInitiallyRef = useRef(false)
+  const hasFitPreviewBoundsRef = useRef(false)
   const onPitstopTapRef = useRef(onPitstopTap)
   onPitstopTapRef.current = onPitstopTap
 
@@ -219,9 +222,9 @@ export default function MapView({
     }
   }, [teammatePositions])
 
-  // Puck position/rotation + camera follow (self only — Show Team is a
-  // separate, explicit one-shot action below, not something auto-follow
-  // silently switches into).
+  // Puck position/rotation + camera follow. Skipped while previewing — the
+  // rider's real position isn't on the route being previewed, so following
+  // it would just fight the route-bounds view below.
   useEffect(() => {
     const map = mapRef.current
     const marker = puckMarkerRef.current
@@ -238,12 +241,46 @@ export default function MapView({
     if (!hasCenteredInitiallyRef.current) {
       map.jumpTo({ center: [liveLocation.lon, liveLocation.lat], zoom: INITIAL_ZOOM })
       hasCenteredInitiallyRef.current = true
-    } else if (isNavigating && followMode) {
+    } else if (isNavigating && !isPreview && followMode) {
       map.easeTo({ center: [liveLocation.lon, liveLocation.lat], zoom: NAV_ZOOM, duration: CAMERA_EASE_MS })
     }
-  }, [liveLocation, puckBearingDegrees, isNavigating, followMode])
+  }, [liveLocation, puckBearingDegrees, isNavigating, isPreview, followMode])
+
+  // One-shot route-bounds fit when previewing — same idea as Show Team's
+  // bounds fit, just framing the whole planned route instead of teammates,
+  // since there's no live position on it to follow.
+  useEffect(() => {
+    if (!isPreview) {
+      hasFitPreviewBoundsRef.current = false
+      return
+    }
+    const map = mapRef.current
+    if (!map || !pitstopPlan || hasFitPreviewBoundsRef.current) return
+    if (pitstopPlan.route.points.length === 0) return
+
+    const bounds = new maplibregl.LngLatBounds()
+    for (const point of pitstopPlan.route.points) {
+      bounds.extend([point.lon, point.lat])
+    }
+    map.fitBounds(bounds, { padding: SHOW_TEAM_PADDING_PX, duration: CAMERA_EASE_MS })
+    hasFitPreviewBoundsRef.current = true
+  }, [isPreview, pitstopPlan])
+
+  const fitRouteBounds = () => {
+    const map = mapRef.current
+    if (!map || !pitstopPlan || pitstopPlan.route.points.length === 0) return
+    const bounds = new maplibregl.LngLatBounds()
+    for (const point of pitstopPlan.route.points) {
+      bounds.extend([point.lon, point.lat])
+    }
+    map.fitBounds(bounds, { padding: SHOW_TEAM_PADDING_PX, duration: CAMERA_EASE_MS })
+  }
 
   const handleRecenter = () => {
+    if (isPreview) {
+      fitRouteBounds()
+      return
+    }
     setFollowMode(true)
     const map = mapRef.current
     if (map && liveLocation) {
@@ -267,9 +304,9 @@ export default function MapView({
     <div className="map-container">
       <div ref={containerRef} className="map-view" />
 
-      {isNavigating && !followMode && liveLocation && (
+      {isNavigating && (isPreview || !followMode) && (isPreview ? pitstopPlan : liveLocation) && (
         <button className="recenter-button" onClick={handleRecenter}>
-          Recenter
+          {isPreview ? 'Fit route' : 'Recenter'}
         </button>
       )}
 
