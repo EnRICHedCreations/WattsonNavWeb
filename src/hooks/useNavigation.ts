@@ -245,13 +245,41 @@ export function useNavigation() {
 
   async function planRoute() {
     const current = stateRef.current
-    const effectiveOrigin = current.selectedOrigin?.location ?? current.origin
+
+    // Typing a query alone never sets selectedOrigin/selectedDestination —
+    // only tapping a suggestion does. If the rider typed something and
+    // clicked straight to Plan route without confirming it, don't silently
+    // drop what they typed and fall back to current location: resolve it now.
+    let originResult = current.selectedOrigin
+    if (!originResult && current.originQuery.trim().length >= 3) {
+      setState({ isPlanning: true })
+      const results = current.originGeocodeResults.length > 0
+        ? current.originGeocodeResults
+        : await geocodeSearch(current.originQuery)
+      if (results.length > 0) {
+        originResult = results[0]
+        setState({ selectedOrigin: originResult, originQuery: originResult.label, originGeocodeResults: [] })
+      }
+    }
+
+    let destinationResult = current.selectedDestination
+    if (!destinationResult && current.destinationQuery.trim().length >= 3) {
+      const results = current.geocodeResults.length > 0
+        ? current.geocodeResults
+        : await geocodeSearch(current.destinationQuery)
+      if (results.length > 0) {
+        destinationResult = results[0]
+        setState({ selectedDestination: destinationResult, destinationQuery: destinationResult.label, geocodeResults: [] })
+      }
+    }
+
+    const effectiveOrigin = originResult?.location ?? current.origin
     if (!effectiveOrigin) {
-      setState({ errorMessage: 'Waiting on your current location — check location permission, or set a starting point.' })
+      setState({ isPlanning: false, errorMessage: 'Waiting on your current location — check location permission, or set a starting point.' })
       return
     }
-    if (!current.selectedDestination) {
-      setState({ errorMessage: 'Pick a destination first.' })
+    if (!destinationResult) {
+      setState({ isPlanning: false, errorMessage: 'Pick a destination first.' })
       return
     }
 
@@ -259,7 +287,7 @@ export function useNavigation() {
     try {
       const result = await planRouteInternal({
         origin: effectiveOrigin,
-        destination: current.selectedDestination.location,
+        destination: destinationResult.location,
         chargeIntervalMiles: current.chargeIntervalMiles,
         stationFilter: current.chargeStationFilter,
       })
