@@ -74,6 +74,56 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.submitted-spots-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.submitted-spots-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.wheel-telemetry p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.emphasize {
+  font-weight: 700;
+}
+
+.exploring-card {
+  margin-bottom: 8px;
+}
+
+.low-battery-alert {
+  background: #3a1f1f;
+  border: 1px solid #6b3a3a;
+  margin-bottom: 8px;
+}
+
 .banner {
   position: absolute;
   top: 16px;

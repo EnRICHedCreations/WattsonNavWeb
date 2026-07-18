@@ -24,6 +24,10 @@ import type { TripHistoryEntry } from '../lib/db/tripHistory'
 import * as riderIdentity from '../lib/db/riderIdentity'
 import * as groupRideRepository from '../lib/repository/groupRideRepository'
 import { supabase } from '../lib/supabase/client'
+import * as chargePointRepository from '../lib/repository/chargePointRepository'
+import { WhPerMileCalculator } from '../lib/domain/whPerMileCalculator'
+import type { WheelTelemetry } from '../lib/wheel/gotwayFrameParser'
+import { WheelBleClient, type WheelConnectionState } from '../lib/wheel/wheelBleClient'
 
 /** Wire format must match RiderPresence.kt's @SerialName annotations exactly:
  * rider_id/display_name are explicitly renamed to snake_case in Kotlin's
@@ -47,6 +51,39 @@ interface WaitForMeEvent {
 
 const SEARCH_DEBOUNCE_MS = 400
 const OFF_ROUTE_THRESHOLD_METERS = 40
+const DIRECTION_CHANGE_DEBOUNCE_METERS = 60
+const LOW_BATTERY_SNOOZE_MILLIS = 10 * 60 * 1000 // 10 minutes
+
+const COMPASS_SECTORS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
+function bearingToCompassSector(bearingDegrees: number): string {
+  const normalized = ((bearingDegrees % 360) + 360) % 360
+  const index = Math.floor((normalized + 22.5) / 45) % 8
+  return COMPASS_SECTORS[index]
+}
+
+function compassSectorSpokenLabel(sector: string): string {
+  switch (sector) {
+    case 'N':
+      return 'north'
+    case 'NE':
+      return 'northeast'
+    case 'E':
+      return 'east'
+    case 'SE':
+      return 'southeast'
+    case 'S':
+      return 'south'
+    case 'SW':
+      return 'southwest'
+    case 'W':
+      return 'west'
+    case 'NW':
+      return 'northwest'
+    default:
+      return sector
+  }
+}
 const REROUTE_COOLDOWN_MS = 15_000
 const DESTINATION_ARRIVAL_THRESHOLD_METERS = 30
 const PITSTOP_ARRIVAL_THRESHOLD_METERS = 40
@@ -87,6 +124,35 @@ export interface NavState {
   waitForMeMessage: string | null
   isJoiningGroup: boolean
   groupError: string | null
+
+  // Wheel connection (experimental). Chrome only — no iOS Safari support at
+  // all, a platform limitation, not something fixable here. See
+  // WheelBleClient's own doc comment for the rest of the caveats.
+  wheelConnectionState: WheelConnectionState
+  wheelTelemetry: WheelTelemetry | null
+  wheelWhPerMile: number | null
+
+  // Exploration Mode — no-destination riding.
+  isExploring: boolean
+  explorationDistanceMeters: number
+  explorationDirectionMessage: string | null
+  explorationVoltageThresholdInput: string
+  explorationAutoRedirectVoltage: number | null
+  explorationLowBatteryAlertMessage: string | null
+
+  // Add Charge — address search + EV/Public. No separate name field; the
+  // address label doubles as the spot's name, matching the Android design.
+  showSubmitChargePointForm: boolean
+  submitChargePointAddressQuery: string
+  submitChargePointAddressResults: GeocodeResult[]
+  submitChargePointSelectedAddress: GeocodeResult | null
+  submitChargePointCategory: 'EV' | 'PUBLIC'
+  isSubmittingChargePoint: boolean
+
+  // View submitted spots — browse + flag.
+  showViewSubmittedSpots: boolean
+  isFetchingSubmittedSpots: boolean
+  submittedSpotsOptions: ChargePoint[]
 }
 
 const initialState: NavState = {
@@ -119,6 +185,24 @@ const initialState: NavState = {
   waitForMeMessage: null,
   isJoiningGroup: false,
   groupError: null,
+  wheelConnectionState: 'DISCONNECTED',
+  wheelTelemetry: null,
+  wheelWhPerMile: null,
+  isExploring: false,
+  explorationDistanceMeters: 0,
+  explorationDirectionMessage: null,
+  explorationVoltageThresholdInput: '',
+  explorationAutoRedirectVoltage: null,
+  explorationLowBatteryAlertMessage: null,
+  showSubmitChargePointForm: false,
+  submitChargePointAddressQuery: '',
+  submitChargePointAddressResults: [],
+  submitChargePointSelectedAddress: null,
+  submitChargePointCategory: 'EV',
+  isSubmittingChargePoint: false,
+  showViewSubmittedSpots: false,
+  isFetchingSubmittedSpots: false,
+  submittedSpotsOptions: [],
 }
 
 export function useNavigation() {
@@ -136,6 +220,19 @@ export function useNavigation() {
   const originSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const destinationSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
+
+  const wheelClientRef = useRef<WheelBleClient | null>(null)
+  const whPerMileCalculatorRef = useRef(new WhPerMileCalculator())
+  const wheelTripDistanceMetersRef = useRef(0)
+  const previousWheelFixLocationRef = useRef<LatLng | null>(null)
+
+  const previousExplorationFixLocationRef = useRef<LatLng | null>(null)
+  const announcedDirectionSectorRef = useRef<string | null>(null)
+  const candidateDirectionSectorRef = useRef<string | null>(null)
+  const candidateDirectionSectorStartLocationRef = useRef<LatLng | null>(null)
+  const lowBatteryAlertSnoozedUntilRef = useRef(0)
+
+  const submitChargePointSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load persisted settings + trip history + rider identity once on mount.
   useEffect(() => {
@@ -523,6 +620,13 @@ export function useNavigation() {
         .catch((error) => console.error('trackPosition failed:', error))
     }
 
+    trackWheelTelemetry(fix.location)
+
+    if (current.isExploring) {
+      handleExplorationUpdate(fix.location, fix.bearingDegrees)
+      return
+    }
+
     if (!current.isNavigating) return
 
     // A custom starting point means the rider isn't physically where the
@@ -631,6 +735,349 @@ export function useNavigation() {
     }
   }
 
+  // --- Wheel connection (experimental) ---
+
+  function connectWheel() {
+    if (!WheelBleClient.isSupported()) {
+      setState({ errorMessage: 'Web Bluetooth is not available in this browser (Chrome only, no iOS Safari).' })
+      return
+    }
+    wheelTripDistanceMetersRef.current = 0
+    previousWheelFixLocationRef.current = null
+    whPerMileCalculatorRef.current.reset()
+    setState({ wheelWhPerMile: null })
+
+    const client = new WheelBleClient({ cellCount: 16 })
+    wheelClientRef.current = client
+    client.onStateChange((wheelConnectionState) => setState({ wheelConnectionState }))
+    client.onTelemetry((wheelTelemetry) => {
+      setState({ wheelTelemetry })
+      checkLowBatteryAutoRedirect(wheelTelemetry)
+    })
+    client.connect().catch((error: unknown) => {
+      console.error('connectWheel failed:', error)
+      setState({ errorMessage: error instanceof Error ? error.message : 'Could not connect to wheel' })
+    })
+  }
+
+  function disconnectWheel() {
+    wheelClientRef.current?.disconnect()
+  }
+
+  /** Shared between route navigation and Exploration Mode's location
+   * handling below — Wh/mile tracking works the same regardless of whether
+   * there's a planned route underneath it. */
+  function trackWheelTelemetry(fixLocation: LatLng) {
+    if (stateRef.current.wheelConnectionState !== 'CONNECTED') return
+    const previous = previousWheelFixLocationRef.current
+    if (previous) {
+      wheelTripDistanceMetersRef.current += distanceMeters(previous, fixLocation)
+    }
+    previousWheelFixLocationRef.current = fixLocation
+
+    const telemetry = stateRef.current.wheelTelemetry
+    if (!telemetry || telemetry.voltageVolts == null || telemetry.currentAmps == null) return
+    const powerWatts = telemetry.voltageVolts * telemetry.currentAmps
+    const whPerMile = whPerMileCalculatorRef.current.addSample(
+      Date.now(),
+      wheelTripDistanceMetersRef.current,
+      powerWatts,
+    )
+    if (whPerMile != null) {
+      setState({ wheelWhPerMile: whPerMile })
+    }
+  }
+
+  // --- Exploration Mode ---
+  // No destination, no planned route — tracks the ride and announces
+  // significant direction changes. Mutually exclusive with route
+  // navigation, same as the Android app.
+
+  function onExplorationVoltageThresholdChanged(value: string) {
+    setState({ explorationVoltageThresholdInput: value })
+  }
+
+  function startExploring() {
+    const current = stateRef.current
+    if (current.isExploring || current.isNavigating) return
+
+    previousExplorationFixLocationRef.current = null
+    announcedDirectionSectorRef.current = null
+    candidateDirectionSectorRef.current = null
+    candidateDirectionSectorStartLocationRef.current = null
+    wheelTripDistanceMetersRef.current = 0
+    previousWheelFixLocationRef.current = null
+    whPerMileCalculatorRef.current.reset()
+    lowBatteryAlertSnoozedUntilRef.current = 0
+
+    const parsedThreshold = parseFloat(current.explorationVoltageThresholdInput)
+    const thresholdVoltage = !isNaN(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : null
+
+    setState({
+      isExploring: true,
+      explorationDistanceMeters: 0,
+      explorationDirectionMessage: null,
+      explorationAutoRedirectVoltage: thresholdVoltage,
+      explorationLowBatteryAlertMessage: null,
+      wheelWhPerMile: null,
+    })
+  }
+
+  function stopExploring() {
+    previousExplorationFixLocationRef.current = null
+    setState({ isExploring: false })
+  }
+
+  function handleExplorationUpdate(fixLocation: LatLng, bearingDegrees: number | null) {
+    const previous = previousExplorationFixLocationRef.current
+    if (previous) {
+      const delta = distanceMeters(previous, fixLocation)
+      setState((prev) => ({ explorationDistanceMeters: prev.explorationDistanceMeters + delta }))
+    }
+    previousExplorationFixLocationRef.current = fixLocation
+
+    if (bearingDegrees != null) {
+      maybeAnnounceDirectionChange(bearingDegrees, fixLocation)
+    }
+  }
+
+  /** 8-point compass, debounced by distance rather than reacting to every
+   * GPS sample — raw bearing is noisy enough that a normal street curve
+   * would otherwise trigger a spurious "now heading X" announcement. */
+  function maybeAnnounceDirectionChange(bearingDegrees: number, currentLocation: LatLng) {
+    const sector = bearingToCompassSector(bearingDegrees)
+
+    if (sector === announcedDirectionSectorRef.current) {
+      candidateDirectionSectorRef.current = null
+      candidateDirectionSectorStartLocationRef.current = null
+      return
+    }
+
+    if (sector !== candidateDirectionSectorRef.current) {
+      candidateDirectionSectorRef.current = sector
+      candidateDirectionSectorStartLocationRef.current = currentLocation
+      return
+    }
+
+    const startLocation = candidateDirectionSectorStartLocationRef.current
+    if (!startLocation) return
+    const distanceInCandidate = distanceMeters(startLocation, currentLocation)
+    if (distanceInCandidate < DIRECTION_CHANGE_DEBOUNCE_METERS) return
+
+    announcedDirectionSectorRef.current = sector
+    candidateDirectionSectorRef.current = null
+    candidateDirectionSectorStartLocationRef.current = null
+
+    setState({ explorationDirectionMessage: `Heading ${compassSectorSpokenLabel(sector)}` })
+  }
+
+  /** Alert-with-easy-dismiss, not a hard automatic switch. Snoozes for a
+   * while on dismiss rather than for the rest of the ride. Compares
+   * against raw voltage directly — no estimated-percentage step to be
+   * wrong about, matching the Android app's own later correction. */
+  function checkLowBatteryAutoRedirect(telemetry: WheelTelemetry) {
+    const current = stateRef.current
+    if (!current.isExploring) return
+    const thresholdVoltage = current.explorationAutoRedirectVoltage
+    if (thresholdVoltage == null) return
+    if (current.explorationLowBatteryAlertMessage != null) return
+    if (Date.now() < lowBatteryAlertSnoozedUntilRef.current) return
+    const voltage = telemetry.voltageVolts
+    if (voltage == null) return
+
+    if (voltage <= thresholdVoltage) {
+      setState({
+        explorationLowBatteryAlertMessage: `Battery at ${voltage.toFixed(1)}V — route to the nearest charging station?`,
+      })
+    }
+  }
+
+  function acceptLowBatteryRedirect() {
+    setState({ explorationLowBatteryAlertMessage: null })
+    void routeToNearestChargeStation()
+  }
+
+  function dismissLowBatteryAlert() {
+    lowBatteryAlertSnoozedUntilRef.current = Date.now() + LOW_BATTERY_SNOOZE_MILLIS
+    setState({ explorationLowBatteryAlertMessage: null })
+  }
+
+  // --- Charging ---
+
+  async function findNearestChargeStation(location: LatLng, filter: ChargeStationFilter) {
+    for (const radiusMiles of [1, 3, 8, 20]) {
+      const candidates = await chargePointRepository.chargePointsNear(location, radiusMiles, filter)
+      if (candidates.length === 0) continue
+      return candidates.reduce((closest, candidate) =>
+        distanceMeters(location, candidate.location) < distanceMeters(location, closest.location)
+          ? candidate
+          : closest,
+      )
+    }
+    return null
+  }
+
+  async function routeToNearestChargeStation() {
+    const current = stateRef.current
+    const currentLocation = current.liveLocation ?? current.origin
+    if (!currentLocation) {
+      setState({ errorMessage: 'Waiting on your current location.' })
+      return
+    }
+
+    if (current.isExploring) stopExploring()
+
+    setState({
+      isPlanning: true,
+      errorMessage: null,
+      selectedOrigin: null,
+      originQuery: '',
+      originGeocodeResults: [],
+    })
+
+    let nearest = await findNearestChargeStation(currentLocation, current.chargeStationFilter)
+    if (!nearest && current.chargeStationFilter !== 'BOTH') {
+      // A configured PUBLIC_ONLY filter shouldn't make this report nothing
+      // found when EV stations are actually available nearby.
+      nearest = await findNearestChargeStation(currentLocation, 'BOTH')
+    }
+    if (!nearest) {
+      setState({ isPlanning: false, errorMessage: 'No charge stations found nearby.' })
+      return
+    }
+
+    const destination: GeocodeResult = { label: nearest.name, location: nearest.location }
+    setState({ selectedDestination: destination, destinationQuery: destination.label, geocodeResults: [] })
+
+    setState({ isPlanning: true, errorMessage: null })
+    try {
+      const newPlan = await planRouteInternal({
+        origin: currentLocation,
+        destination: destination.location,
+        chargeIntervalMiles: current.chargeIntervalMiles,
+        stationFilter: current.chargeStationFilter,
+      })
+      cumulativeDistancesRef.current = cumulativeDistances(newPlan.route.points)
+      setState({ pitstopPlan: newPlan, isPlanning: false, currentStepIndex: 0 })
+      startNavigation()
+    } catch (error) {
+      setState({ isPlanning: false, errorMessage: error instanceof Error ? error.message : "Couldn't plan a route" })
+    }
+  }
+
+  // --- Add Charge ---
+  // Address search + EV/Public, that's it — the geocoded address label
+  // doubles as the spot's name, matching the simplified Android design.
+
+  function onSubmitChargePointAddressQueryChanged(query: string) {
+    setState({ submitChargePointAddressQuery: query, submitChargePointSelectedAddress: null })
+    if (submitChargePointSearchTimer.current) clearTimeout(submitChargePointSearchTimer.current)
+    if (query.trim().length < 3) {
+      setState({ submitChargePointAddressResults: [] })
+      return
+    }
+    submitChargePointSearchTimer.current = setTimeout(async () => {
+      const results = await geocodeSearch(query)
+      setState({ submitChargePointAddressResults: results })
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  function selectSubmitChargePointAddress(result: GeocodeResult) {
+    setState({
+      submitChargePointSelectedAddress: result,
+      submitChargePointAddressQuery: result.label,
+      submitChargePointAddressResults: [],
+    })
+  }
+
+  function onSubmitChargePointCategoryChanged(category: 'EV' | 'PUBLIC') {
+    setState({ submitChargePointCategory: category })
+  }
+
+  function openSubmitChargePointForm() {
+    if (submitChargePointSearchTimer.current) clearTimeout(submitChargePointSearchTimer.current)
+    setState({
+      showSubmitChargePointForm: true,
+      submitChargePointAddressQuery: '',
+      submitChargePointAddressResults: [],
+      submitChargePointSelectedAddress: null,
+      submitChargePointCategory: 'EV',
+    })
+  }
+
+  function closeSubmitChargePointForm() {
+    if (submitChargePointSearchTimer.current) clearTimeout(submitChargePointSearchTimer.current)
+    setState({ showSubmitChargePointForm: false })
+  }
+
+  async function submitChargePoint() {
+    const current = stateRef.current
+    const address = current.submitChargePointSelectedAddress
+    if (!address) {
+      setState({ errorMessage: 'Search for the address and pick a result first.' })
+      return
+    }
+
+    setState({ isSubmittingChargePoint: true, errorMessage: null })
+    try {
+      await chargePointRepository.submitChargePoint(
+        current.riderId,
+        address.label,
+        address.location,
+        current.submitChargePointCategory,
+      )
+      setState({
+        isSubmittingChargePoint: false,
+        showSubmitChargePointForm: false,
+        submitChargePointAddressQuery: '',
+        submitChargePointSelectedAddress: null,
+      })
+    } catch (error) {
+      setState({
+        isSubmittingChargePoint: false,
+        errorMessage: error instanceof Error ? error.message : "Couldn't submit that spot",
+      })
+    }
+  }
+
+  // --- View submitted spots ---
+
+  async function refreshSubmittedSpots() {
+    const current = stateRef.current
+    const location = current.liveLocation ?? current.origin
+    if (!location) return
+    setState({ isFetchingSubmittedSpots: true })
+    try {
+      const results = await chargePointRepository.submittedChargePointsNear(location, 15.0)
+      results.sort((a, b) => distanceMeters(location, a.location) - distanceMeters(location, b.location))
+      setState({ isFetchingSubmittedSpots: false, submittedSpotsOptions: results })
+    } catch (error) {
+      console.error('refreshSubmittedSpots failed:', error)
+      setState({ isFetchingSubmittedSpots: false, submittedSpotsOptions: [] })
+    }
+  }
+
+  function openViewSubmittedSpots() {
+    const current = stateRef.current
+    if (!current.liveLocation && !current.origin) {
+      setState({ errorMessage: 'Waiting on your current location.' })
+      return
+    }
+    setState({ showViewSubmittedSpots: true })
+    void refreshSubmittedSpots()
+  }
+
+  function closeViewSubmittedSpots() {
+    setState({ showViewSubmittedSpots: false, submittedSpotsOptions: [] })
+  }
+
+  function flagSubmittedChargePoint(chargePoint: ChargePoint) {
+    void chargePointRepository
+      .flagChargePoint(chargePoint.id)
+      .catch((error) => console.error('flagChargePoint failed:', error))
+      .then(() => refreshSubmittedSpots())
+  }
+
   return {
     state: stateRef.current,
     geoError,
@@ -654,5 +1101,22 @@ export function useNavigation() {
     leaveGroupRide,
     sendWaitForMe,
     clearWaitForMeMessage,
+    connectWheel,
+    disconnectWheel,
+    startExploring,
+    stopExploring,
+    onExplorationVoltageThresholdChanged,
+    acceptLowBatteryRedirect,
+    dismissLowBatteryAlert,
+    routeToNearestChargeStation,
+    onSubmitChargePointAddressQueryChanged,
+    selectSubmitChargePointAddress,
+    onSubmitChargePointCategoryChanged,
+    openSubmitChargePointForm,
+    closeSubmitChargePointForm,
+    submitChargePoint,
+    openViewSubmittedSpots,
+    closeViewSubmittedSpots,
+    flagSubmittedChargePoint,
   }
 }

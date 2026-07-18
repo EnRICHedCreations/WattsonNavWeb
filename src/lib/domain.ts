@@ -37,6 +37,7 @@ export interface ChargePoint {
   source: ChargeSource
   connectorTypes: string[]
   networkName: string | null
+  isUserSubmitted?: boolean
 }
 
 export interface Pitstop {

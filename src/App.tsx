@@ -30,6 +30,23 @@ function App() {
     leaveGroupRide,
     sendWaitForMe,
     clearWaitForMeMessage,
+    connectWheel,
+    disconnectWheel,
+    startExploring,
+    stopExploring,
+    onExplorationVoltageThresholdChanged,
+    acceptLowBatteryRedirect,
+    dismissLowBatteryAlert,
+    routeToNearestChargeStation,
+    onSubmitChargePointAddressQueryChanged,
+    selectSubmitChargePointAddress,
+    onSubmitChargePointCategoryChanged,
+    openSubmitChargePointForm,
+    closeSubmitChargePointForm,
+    submitChargePoint,
+    openViewSubmittedSpots,
+    closeViewSubmittedSpots,
+    flagSubmittedChargePoint,
   } = useNavigation()
 
   // Arrival banner auto-clears after a few seconds, same as the Android app.
@@ -49,7 +66,7 @@ function App() {
         liveLocation={state.liveLocation}
         puckBearingDegrees={state.puckBearingDegrees}
         pitstopPlan={state.pitstopPlan}
-        isNavigating={state.isNavigating}
+        isNavigating={state.isNavigating || state.isExploring}
         isPreview={isPreview}
         teammatePositions={state.teammatePositions}
         onPitstopTap={onPitstopTapped}
@@ -104,7 +121,51 @@ function App() {
                 Leave group
               </button>
             )}
+            <button className="secondary-button" onClick={routeToNearestChargeStation}>
+              Charge
+            </button>
             <button className="stop-button" onClick={stopNavigation}>
+              Stop
+            </button>
+          </div>
+        </div>
+      ) : state.isExploring ? (
+        <div className="nav-overlay">
+          {state.explorationLowBatteryAlertMessage && (
+            <div className="card low-battery-alert">
+              <div>{state.explorationLowBatteryAlertMessage}</div>
+              <div className="button-row">
+                <button className="primary-button" onClick={acceptLowBatteryRedirect}>
+                  Route me there
+                </button>
+                <button className="text-button" onClick={dismissLowBatteryAlert}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="card exploring-card">
+            <div className="turn-instruction">Exploring</div>
+            <div>{(state.explorationDistanceMeters / 1609.344).toFixed(2)} mi this ride</div>
+            {state.explorationDirectionMessage && <div>{state.explorationDirectionMessage}</div>}
+            {state.wheelConnectionState === 'CONNECTED' ? (
+              <>
+                {state.wheelWhPerMile != null && (
+                  <div className="emphasize">{Math.round(state.wheelWhPerMile)} Wh/mile (rolling)</div>
+                )}
+                {state.wheelTelemetry?.voltageVolts != null && <div>{state.wheelTelemetry.voltageVolts.toFixed(1)}V</div>}
+              </>
+            ) : (
+              <div className="hint-text">No wheel connected — connect one from the main screen to see Wh/mile.</div>
+            )}
+          </div>
+
+          <div className="nav-button-row">
+            <button className="secondary-button" onClick={routeToNearestChargeStation}>
+              Charge
+            </button>
+            <button className="stop-button" onClick={stopExploring}>
               Stop
             </button>
           </div>
@@ -126,6 +187,20 @@ function App() {
           onDisplayNameChange={setDisplayName}
           startGroupRide={startGroupRide}
           joinGroupRide={joinGroupRide}
+          connectWheel={connectWheel}
+          disconnectWheel={disconnectWheel}
+          startExploring={startExploring}
+          onExplorationVoltageThresholdChanged={onExplorationVoltageThresholdChanged}
+          routeToNearestChargeStation={routeToNearestChargeStation}
+          onSubmitChargePointAddressQueryChanged={onSubmitChargePointAddressQueryChanged}
+          selectSubmitChargePointAddress={selectSubmitChargePointAddress}
+          onSubmitChargePointCategoryChanged={onSubmitChargePointCategoryChanged}
+          openSubmitChargePointForm={openSubmitChargePointForm}
+          closeSubmitChargePointForm={closeSubmitChargePointForm}
+          submitChargePoint={submitChargePoint}
+          openViewSubmittedSpots={openViewSubmittedSpots}
+          closeViewSubmittedSpots={closeViewSubmittedSpots}
+          flagSubmittedChargePoint={flagSubmittedChargePoint}
         />
       )}
 
