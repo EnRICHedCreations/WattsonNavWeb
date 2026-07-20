@@ -32,6 +32,7 @@ function App() {
     clearWaitForMeMessage,
     connectWheel,
     disconnectWheel,
+    onWheelCellCountChanged,
     startExploring,
     stopExploring,
     onExplorationVoltageThresholdChanged,
@@ -189,6 +190,7 @@ function App() {
           joinGroupRide={joinGroupRide}
           connectWheel={connectWheel}
           disconnectWheel={disconnectWheel}
+          onWheelCellCountChanged={onWheelCellCountChanged}
           startExploring={startExploring}
           onExplorationVoltageThresholdChanged={onExplorationVoltageThresholdChanged}
           routeToNearestChargeStation={routeToNearestChargeStation}

@@ -131,6 +131,7 @@ export interface NavState {
   wheelConnectionState: WheelConnectionState
   wheelTelemetry: WheelTelemetry | null
   wheelWhPerMile: number | null
+  wheelCellCount: number
 
   // Exploration Mode — no-destination riding.
   isExploring: boolean
@@ -188,6 +189,7 @@ const initialState: NavState = {
   wheelConnectionState: 'DISCONNECTED',
   wheelTelemetry: null,
   wheelWhPerMile: null,
+  wheelCellCount: 16,
   isExploring: false,
   explorationDistanceMeters: 0,
   explorationDirectionMessage: null,
@@ -237,9 +239,10 @@ export function useNavigation() {
   // Load persisted settings + trip history + rider identity once on mount.
   useEffect(() => {
     void (async () => {
-      const [savedInterval, savedFilter, trips, riderId, displayName] = await Promise.all([
+      const [savedInterval, savedFilter, savedCellCount, trips, riderId, displayName] = await Promise.all([
         preferences.getChargeIntervalMiles(initialState.chargeIntervalMiles),
         preferences.getChargeStationFilter(initialState.chargeStationFilter),
+        preferences.getWheelCellCount(initialState.wheelCellCount),
         tripHistory.getRecentTrips(),
         riderIdentity.getRiderId(),
         riderIdentity.getDisplayName(),
@@ -247,6 +250,7 @@ export function useNavigation() {
       setState({
         chargeIntervalMiles: savedInterval,
         chargeStationFilter: savedFilter,
+        wheelCellCount: savedCellCount,
         recentTrips: trips,
         riderId,
         displayName,
@@ -737,6 +741,16 @@ export function useNavigation() {
 
   // --- Wheel connection (experimental) ---
 
+  function onWheelCellCountChanged(cellCount: number) {
+    setState({ wheelCellCount: cellCount })
+    void preferences.setWheelCellCount(cellCount)
+    // Live-update calibration immediately if already connected, rather than
+    // requiring a disconnect/reconnect to pick up the new setting.
+    if (stateRef.current.wheelConnectionState === 'CONNECTED') {
+      wheelClientRef.current?.updateCalibration({ cellCount })
+    }
+  }
+
   function connectWheel() {
     if (!WheelBleClient.isSupported()) {
       setState({ errorMessage: 'Web Bluetooth is not available in this browser (Chrome only, no iOS Safari).' })
@@ -747,7 +761,7 @@ export function useNavigation() {
     whPerMileCalculatorRef.current.reset()
     setState({ wheelWhPerMile: null })
 
-    const client = new WheelBleClient({ cellCount: 16 })
+    const client = new WheelBleClient({ cellCount: stateRef.current.wheelCellCount })
     wheelClientRef.current = client
     client.onStateChange((wheelConnectionState) => setState({ wheelConnectionState }))
     client.onTelemetry((wheelTelemetry) => {
@@ -1103,6 +1117,7 @@ export function useNavigation() {
     clearWaitForMeMessage,
     connectWheel,
     disconnectWheel,
+    onWheelCellCountChanged,
     startExploring,
     stopExploring,
     onExplorationVoltageThresholdChanged,

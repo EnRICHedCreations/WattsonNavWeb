@@ -28,7 +28,7 @@ export type WheelConnectionState = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' |
  * layer is standard-pattern but unproven.
  */
 export class WheelBleClient {
-  private readonly parser: GotwayFrameParser
+  private parser: GotwayFrameParser
   private device: BluetoothDevice | null = null
   private characteristic: BluetoothRemoteGATTCharacteristic | null = null
 
@@ -38,6 +38,14 @@ export class WheelBleClient {
   private telemetryListeners = new Set<(telemetry: WheelTelemetry) => void>()
 
   constructor(calibration: PackVoltageCalibration = { cellCount: 16 }) {
+    this.parser = new GotwayFrameParser(calibration)
+  }
+
+  /** Swaps in a fresh parser with new calibration — used when the rider
+   * updates their pack cell count in settings. Deliberately does NOT
+   * require a new WheelBleClient instance: the state/telemetry listeners
+   * registered on this client would otherwise need to be re-attached. */
+  updateCalibration(calibration: PackVoltageCalibration): void {
     this.parser = new GotwayFrameParser(calibration)
   }
 

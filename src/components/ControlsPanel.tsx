@@ -27,6 +27,7 @@ interface ControlsPanelProps {
   joinGroupRide: (code: string) => void
   connectWheel: () => void
   disconnectWheel: () => void
+  onWheelCellCountChanged: (cellCount: number) => void
   startExploring: () => void
   onExplorationVoltageThresholdChanged: (value: string) => void
   routeToNearestChargeStation: () => void
@@ -59,6 +60,7 @@ export default function ControlsPanel({
   joinGroupRide,
   connectWheel,
   disconnectWheel,
+  onWheelCellCountChanged,
   startExploring,
   onExplorationVoltageThresholdChanged,
   routeToNearestChargeStation,
@@ -175,6 +177,20 @@ export default function ControlsPanel({
           an Apple platform limitation, not something this app can work around. Connection code hasn't been run
           against real hardware yet.
         </p>
+        <input
+          className="search-input"
+          type="number"
+          placeholder="Pack cell count (e.g. 16, 20, 24, 32)"
+          value={state.wheelCellCount}
+          onChange={(e) => {
+            const parsed = parseInt(e.target.value, 10)
+            if (!isNaN(parsed) && parsed > 0) onWheelCellCountChanged(parsed)
+          }}
+        />
+        <p className="hint-text">
+          Stock packs are usually 16S. If voltage readings look wrong once connected, check your wheel's actual pack
+          configuration rather than assume 16S.
+        </p>
         {state.wheelConnectionState === 'DISCONNECTED' || state.wheelConnectionState === 'FAILED' ? (
           <button className="secondary-button" onClick={connectWheel}>
             Connect wheel
@@ -189,7 +205,7 @@ export default function ControlsPanel({
           </button>
         )}
         {state.wheelConnectionState === 'FAILED' && (
-          <p className="error-text">Connection failed — check that the wheel is on and in range, and try again.</p>
+          <p className="error-text">{state.errorMessage ?? 'Connection failed — check that the wheel is on and in range, and try again.'}</p>
         )}
         {state.wheelTelemetry && (
           <div className="wheel-telemetry">
